@@ -113,6 +113,8 @@ from integrations.tempo import classify as _classify_tempo
 from integrations.tempo import tempo_config_from_env
 from integrations.temporal import classify as _classify_temporal
 from integrations.temporal.client import TemporalConfig
+from integrations.temps import build_temps_config
+from integrations.temps import classify as _classify_temps
 from integrations.twilio import classify as _classify_twilio
 from integrations.vercel import classify as _classify_vercel
 from integrations.vercel.client import VercelConfig
@@ -269,6 +271,7 @@ _CLASSIFIERS: dict[str, _ClassifyFn] = {
     "rds": _classify_rds,
     "airflow": _classify_airflow,
     "betterstack": _classify_betterstack,
+    "temps": _classify_temps,
     "azure_sql": _classify_azure_sql,
     "alertmanager": _classify_alertmanager,
     "kubernetes": _classify_kubernetes,
@@ -1223,6 +1226,26 @@ def load_env_integrations() -> list[dict[str, Any]]:
             )
         except Exception as exc:
             _report_env_loader_failure(exc, integration="betterstack")
+
+    temps_base_url = os.getenv("TEMPS_BASE_URL", "").strip()
+    temps_api_key = os.getenv("TEMPS_API_KEY", "").strip()
+    if temps_base_url and temps_api_key:
+        try:
+            temps_config = build_temps_config(
+                {
+                    "base_url": temps_base_url,
+                    "api_key": temps_api_key,
+                    "project_id": os.getenv("TEMPS_PROJECT_ID", ""),
+                }
+            )
+            integrations.append(
+                _active_env_record(
+                    "temps",
+                    temps_config.model_dump(exclude={"integration_id"}),
+                )
+            )
+        except Exception as exc:
+            _report_env_loader_failure(exc, integration="temps")
 
     mysql_host = os.getenv("MYSQL_HOST", "").strip()
     mysql_database = os.getenv("MYSQL_DATABASE", "").strip()

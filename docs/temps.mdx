@@ -1,0 +1,85 @@
+---
+title: "Temps"
+description: "Connect temps.sh so OpenSRE can pull error, log, deployment, and uptime evidence from your self-hosted PaaS during investigations"
+---
+
+[temps.sh](https://temps.sh) is a self-hosted PaaS that bundles deployments, OpenTelemetry observability, Sentry-compatible error tracking, uptime monitoring, and web analytics in a single binary. OpenSRE reads investigation evidence from its admin REST API (mounted under `/api`) using a bearer API key.
+
+## Prerequisites
+
+- A running Temps control plane reachable from the OpenSRE environment over HTTPS
+- An API key (`tk_...`) minted from the Temps dashboard (**Settings → API Keys**) with read access to error tracking, observability, deployments, and monitoring
+- Optionally, the numeric project ID to scope queries to (shown in the project's dashboard URL)
+
+## Setup
+
+### Option 1: Interactive CLI
+
+```bash
+opensre integrations setup temps
+```
+
+You will be prompted for the base URL, API key, and an optional default project ID.
+
+### Option 2: Environment variables
+
+Add to your `.env`:
+
+```bash
+TEMPS_BASE_URL=https://temps.example.com
+TEMPS_API_KEY=tk_xxxxxxxxxxxxxxxx
+TEMPS_PROJECT_ID=1
+```
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `TEMPS_BASE_URL` | — | **Required.** Root URL of the Temps control plane (no trailing slash needed; `/api` is appended automatically) |
+| `TEMPS_API_KEY` | — | **Required.** Bearer API key (`tk_...`) with read permissions |
+| `TEMPS_PROJECT_ID` | _(empty)_ | Optional default project scope. When omitted, tools fall back to the server's sole project, or return a structured error listing visible projects so the planner can pick one |
+
+### Option 3: Persistent store
+
+Credentials are persisted to `~/.opensre/integrations.json` with `0o600` permissions:
+
+```json
+{
+  "version": 1,
+  "integrations": [
+    {
+      "id": "temps-prod",
+      "service": "temps",
+      "status": "active",
+      "credentials": {
+        "base_url": "https://temps.example.com",
+        "api_key": "tk_xxxxxxxxxxxxxxxx",
+        "project_id": 1
+      }
+    }
+  ]
+}
+```
+
+## Verify
+
+```bash
+opensre integrations verify temps
+```
+
+Verification performs an authenticated project-list request and reports how many projects the API key can see.
+
+## Tools
+
+| Tool | Evidence | Endpoint |
+| --- | --- | --- |
+| `query_temps_error_groups` | Grouped application errors (Sentry-style issues) with counts and last-seen timestamps | `GET /api/projects/{id}/error-groups` |
+| `query_temps_logs` | OpenTelemetry log records filtered by severity, service, search text, trace ID, and time window | `GET /api/otel/logs` |
+| `query_temps_deployments` | Recent deployments (status, branch, commit) to correlate "what shipped" with an alert window | `GET /api/projects/{id}/deployments` |
+| `query_temps_uptime` | Uptime overview: per-monitor status, uptime percentage, response times, recent incidents | `GET /api/projects/{id}/status` |
+
+All tools are read-only. When `project_id` is not supplied, they resolve the target project automatically (configured hint → sole project) and otherwise return the list of visible projects so the planner can retry with an explicit ID.
+
+## Notes
+
+- API keys authenticate via `Authorization: Bearer tk_...`; keep them out of logs and version control.
+- Long string fields (log bodies, stack traces) are truncated to keep evidence context-friendly; result sets are capped at 100 rows per call.
+- Temps rate-limits with HTTP 429; tools surface this as a structured retryable error.

@@ -429,6 +429,18 @@ def _setup_betterstack() -> None:
     )
 
 
+def _setup_temps() -> None:
+    base_url = _p("Temps base URL (e.g. https://temps.example.com)")
+    api_key = _p("Temps API key (tk_..., from Settings > API Keys)", secret=True)
+    project_id = _p("Default project ID (optional; numeric)")
+    if not base_url or not api_key:
+        _die("base_url and api_key are required.")
+    credentials: dict[str, Any] = {"base_url": base_url, "api_key": api_key}
+    if (project_id or "").strip():
+        credentials["project_id"] = project_id.strip()
+    upsert_integration("temps", {"credentials": credentials})
+
+
 def _setup_incident_io() -> None:
     api_key = _p("incident.io API key", secret=True)
     base_url = _p("API base URL override (optional)")
@@ -1337,6 +1349,7 @@ _HANDLERS: dict[str, Any] = {
     "alertmanager": _setup_alertmanager,
     "aws": _setup_aws,
     "betterstack": _setup_betterstack,
+    "temps": _setup_temps,
     "coralogix": _setup_coralogix,
     "datadog": _setup_datadog,
     "groundcover": _setup_groundcover,

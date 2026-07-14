@@ -168,6 +168,14 @@ INTEGRATION_SPECS: tuple[IntegrationSpec, ...] = (
         verify_order=18,
     ),
     IntegrationSpec(
+        service="temps",
+        aliases=("temps.sh", "temps sh"),
+        has_verifier=True,
+        direct_effective=True,
+        setup_order=52,
+        verify_order=100,
+    ),
+    IntegrationSpec(
         service="vercel",
         has_verifier=True,
         direct_effective=True,

@@ -140,6 +140,7 @@
               "sentry-mcp",
               "signoz",
               "tempo",
+              "temps",
               "splunk",
               "victoria_logs",
               "x-mcp"

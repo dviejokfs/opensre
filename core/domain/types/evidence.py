@@ -67,6 +67,7 @@ EvidenceSource = Literal[
     "telegram",
     "redis",
     "temporal",
+    "temps",
     "kubernetes",
     "interactive_shell",
 ]

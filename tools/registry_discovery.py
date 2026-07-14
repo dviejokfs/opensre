@@ -82,6 +82,7 @@ INTEGRATION_TOOL_PACKAGES: tuple[str, ...] = (
     "integrations.telegram.tools",
     "integrations.tempo.tools",
     "integrations.temporal.tools",
+    "integrations.temps.tools",
     "integrations.tracer.tools",
     "integrations.twilio.tools",
     "integrations.vercel.tools",
