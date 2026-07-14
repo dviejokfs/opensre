@@ -172,6 +172,30 @@ class TestAvailabilityAndExtract:
         params = temps_extract_params({})
         assert params == {"base_url": "", "api_key": "", "project_id": 0}
 
+    def test_effective_integrations_nested_shape(self) -> None:
+        # The chat/investigation gather path resolves integrations through
+        # resolve_effective_integrations + availability_view, which nests the
+        # credentials under "config". Regression: tools were invisible on the
+        # chat surface because availability only read the flat shape.
+        sources = {
+            "temps": {
+                "source": "local env",
+                "config": {
+                    "base_url": "https://temps.example.com",
+                    "api_key": "tk_a",
+                    "project_id": 2,
+                },
+                "connection_verified": True,
+            }
+        }
+        assert temps_is_available(sources)
+        params = temps_extract_params(sources)
+        assert params == {
+            "base_url": "https://temps.example.com",
+            "api_key": "tk_a",
+            "project_id": 2,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Validation

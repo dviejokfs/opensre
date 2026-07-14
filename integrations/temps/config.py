@@ -91,6 +91,26 @@ def temps_config_from_env() -> TempsConfig | None:
     )
 
 
+def _temps_entry(sources: dict[str, dict]) -> dict[str, Any]:
+    """Unwrap the temps entry from a resolved-integrations mapping.
+
+    Tools see two shapes depending on the resolution path: the classified
+    store view exposes credentials flat (``{"base_url": ..., "api_key": ...}``),
+    while the effective-integrations view nests them under ``config``
+    (``{"source": "local env", "config": {...}}``). Accept both so
+    availability and param extraction work on every surface.
+    """
+    entry = sources.get("temps") or {}
+    if not isinstance(entry, dict):
+        return {}
+    if entry.get("base_url") or entry.get("api_key"):
+        return entry
+    config = entry.get("config")
+    if isinstance(config, dict):
+        return config
+    return entry
+
+
 def temps_is_available(sources: dict[str, dict]) -> bool:
     """Check whether temps.sh credentials are present in resolved integrations.
 
@@ -99,13 +119,13 @@ def temps_is_available(sources: dict[str, dict]) -> bool:
     configured hint → sole project on the server) and return a structured
     error listing available projects when the target stays ambiguous.
     """
-    temps = sources.get("temps", {})
+    temps = _temps_entry(sources)
     return bool(temps.get("base_url") and temps.get("api_key"))
 
 
 def temps_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
     """Extract temps.sh credentials and the optional project hint for tool calls."""
-    temps = sources.get("temps", {})
+    temps = _temps_entry(sources)
     return {
         "base_url": temps.get("base_url", ""),
         "api_key": temps.get("api_key", ""),
