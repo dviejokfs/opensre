@@ -133,6 +133,16 @@ def _effective_limit(config: TempsConfig, limit: int | None) -> int:
     return min(max(1, int(limit or config.max_results)), config.max_results)
 
 
+def _total_count(payload: Any, key: str, *, fallback: int) -> int:
+    """Read a paginated total from ``payload[key]``, tolerating odd shapes."""
+    if isinstance(payload, dict):
+        try:
+            return int(payload.get(key, fallback) or 0)
+        except (TypeError, ValueError):
+            return fallback
+    return fallback
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -157,12 +167,12 @@ def validate_temps_config(config: TempsConfig) -> TempsValidationResult:
 
     status = response.status_code
     if status == 200:
-        projects = _rows(_json_body(response), "data", "projects")
+        payload = _json_body(response)
+        projects = _rows(payload, "projects", "data")
+        total = _total_count(payload, "total", fallback=len(projects))
         return TempsValidationResult(
             ok=True,
-            detail=(
-                f"Connected to Temps at {config.base_url} ({len(projects)} project(s) visible)."
-            ),
+            detail=(f"Connected to Temps at {config.base_url} ({total} project(s) visible)."),
         )
     if status in (401, 403):
         return TempsValidationResult(
@@ -196,15 +206,17 @@ def list_projects(config: TempsConfig) -> dict[str, Any]:
         return _error_evidence(err or "Temps request returned no response.")
     if response.status_code != 200:
         return _status_error(response, "project list")
+    payload = _json_body(response)
     projects = [
-        {"id": row.get("id"), "name": row.get("name")}
-        for row in _rows(_json_body(response), "data", "projects")
+        {"id": row.get("id"), "name": row.get("name")} for row in _rows(payload, "projects", "data")
     ]
     return {
         "source": "temps",
         "available": True,
         "projects": projects,
-        "project_count": len(projects),
+        # /projects is paginated ({projects, page, per_page, total}); trust the
+        # server total over the first page's length.
+        "project_count": _total_count(payload, "total", fallback=len(projects)),
     }
 
 
@@ -226,11 +238,12 @@ def resolve_project_id(
     if not listing.get("available"):
         return 0, listing
     projects = listing.get("projects", [])
-    if len(projects) == 1 and projects[0].get("id"):
+    total = int(listing.get("project_count", len(projects)) or 0)
+    if total == 1 and len(projects) == 1 and projects[0].get("id"):
         return int(projects[0]["id"]), None
     return 0, _error_evidence(
         "No project_id was provided and the Temps server has "
-        f"{len(projects)} projects; pass project_id explicitly.",
+        f"{total} projects; pass project_id explicitly.",
         projects=projects,
     )
 

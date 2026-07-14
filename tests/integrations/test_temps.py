@@ -226,19 +226,44 @@ class TestResolveProjectId:
         assert (resolved, err) == (3, None)
 
     def test_sole_project_fallback(self, patched_http_client) -> None:
-        patched_http_client(lambda _request: _json_response([{"id": 8, "name": "only"}]))
+        # Live shape: PaginatedProjectList ({projects, page, per_page, total}).
+        patched_http_client(
+            lambda _request: _json_response(
+                {"projects": [{"id": 8, "name": "only"}], "page": 1, "per_page": 25, "total": 1}
+            )
+        )
         resolved, err = resolve_project_id(_configured(), None)
         assert (resolved, err) == (8, None)
 
     def test_ambiguous_lists_projects(self, patched_http_client) -> None:
         patched_http_client(
-            lambda _request: _json_response([{"id": 1, "name": "a"}, {"id": 2, "name": "b"}])
+            lambda _request: _json_response(
+                {
+                    "projects": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}],
+                    "page": 1,
+                    "per_page": 25,
+                    "total": 2,
+                }
+            )
         )
         resolved, err = resolve_project_id(_configured(), None)
         assert resolved == 0
         assert err is not None
         assert err["available"] is False
         assert {p["id"] for p in err["projects"]} == {1, 2}
+
+    def test_full_first_page_of_larger_total_stays_ambiguous(self, patched_http_client) -> None:
+        # One project on the first page but server total says more exist:
+        # never silently pick it.
+        patched_http_client(
+            lambda _request: _json_response(
+                {"projects": [{"id": 1, "name": "a"}], "page": 1, "per_page": 1, "total": 40}
+            )
+        )
+        resolved, err = resolve_project_id(_configured(), None)
+        assert resolved == 0
+        assert err is not None
+        assert "40 projects" in err["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +272,23 @@ class TestResolveProjectId:
 
 
 class TestListProjects:
+    def test_parses_paginated_project_list(self, patched_http_client) -> None:
+        # Live shape per the temps OpenAPI spec (PaginatedProjectList).
+        patched_http_client(
+            lambda _request: _json_response(
+                {
+                    "projects": [{"id": 1, "name": "web", "slug": "web"}],
+                    "page": 1,
+                    "per_page": 25,
+                    "total": 30,
+                }
+            )
+        )
+        result = list_projects(_configured())
+        assert result["available"] is True
+        assert result["projects"] == [{"id": 1, "name": "web"}]
+        assert result["project_count"] == 30
+
     def test_parses_bare_array(self, patched_http_client) -> None:
         patched_http_client(
             lambda _request: _json_response([{"id": 1, "name": "web", "slug": "web"}])
