@@ -10,8 +10,10 @@ using a bearer API key.
 from __future__ import annotations
 
 from integrations.temps.client import (
+    DEFAULT_CONTAINER_LOGS_LOOKBACK_MINUTES,
     TempsValidationResult,
     list_projects,
+    query_container_logs,
     query_deployments,
     query_error_groups,
     query_logs,
@@ -31,6 +33,7 @@ from integrations.temps.config import (
 )
 
 __all__ = [
+    "DEFAULT_CONTAINER_LOGS_LOOKBACK_MINUTES",
     "DEFAULT_TEMPS_MAX_RESULTS",
     "DEFAULT_TEMPS_TIMEOUT_S",
     "TempsConfig",
@@ -38,6 +41,7 @@ __all__ = [
     "build_temps_config",
     "classify",
     "list_projects",
+    "query_container_logs",
     "query_deployments",
     "query_error_groups",
     "query_logs",

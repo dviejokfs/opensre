@@ -1180,6 +1180,7 @@ _TOOLS_WITHOUT_DELIBERATE_CATCH: frozenset[str] = frozenset(
         "query_signoz_traces",
         "query_splunk_logs",
         "query_tempo",
+        "query_temps_container_logs",
         "query_temps_deployments",
         "query_temps_error_groups",
         "query_temps_logs",

@@ -13,6 +13,7 @@ from integrations.temps import (
     build_temps_config,
     classify,
     list_projects,
+    query_container_logs,
     query_deployments,
     query_error_groups,
     query_logs,
@@ -391,6 +392,79 @@ class TestQueryLogs:
         assert result["logs"] == []
 
 
+class TestQueryContainerLogs:
+    def test_happy_path_sends_search_body(self, patched_http_client) -> None:
+        seen: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["path"] = request.url.path
+            seen["body"] = json.loads(request.content)
+            return _json_response(
+                {
+                    "lines": [
+                        {
+                            "timestamp": "2026-07-14T00:00:01Z",
+                            "level": "error",
+                            "service": "web",
+                            "message": "panic: nil pointer",
+                            "chunk_id": "c1",
+                            "line_offset": 12,
+                        }
+                    ],
+                    "next_cursor": None,
+                    "search_mode": "full_text",
+                    "total_scanned": 900,
+                }
+            )
+
+        patched_http_client(handler)
+        result = query_container_logs(
+            _configured(project_id=5),
+            text="panic",
+            service="web",
+            environment="production",
+            levels=["error", "warn"],
+            start_time="2026-07-14T00:00:00Z",
+            end_time="2026-07-14T01:00:00Z",
+            context_lines=3,
+            limit=20,
+        )
+        assert seen["path"] == "/api/logs/search"
+        body = seen["body"]
+        assert body["project_id"] == 5
+        assert body["text"] == "panic"
+        assert body["services"] == ["web"]
+        assert body["envs"] == ["production"]
+        assert body["levels"] == ["error", "warn"]
+        assert body["start_time"] == "2026-07-14T00:00:00Z"
+        assert body["context_lines"] == 3
+        assert body["page_size"] == 20
+        assert result["available"] is True
+        assert result["line_count"] == 1
+        assert result["total_scanned"] == 900
+        assert result["lines"][0]["message"] == "panic: nil pointer"
+
+    def test_defaults_to_bounded_lookback_window(self, patched_http_client) -> None:
+        seen: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content)
+            return _json_response({"lines": [], "search_mode": "recent", "total_scanned": 0})
+
+        patched_http_client(handler)
+        result = query_container_logs(_configured(project_id=5))
+        # A bare "tail the logs" call must never scan unbounded history.
+        assert seen["body"]["start_time"]
+        assert result["window"]["start_time"] == seen["body"]["start_time"]
+        assert result["window"]["end_time"] == "now"
+
+    def test_auth_failure(self, patched_http_client) -> None:
+        patched_http_client(lambda _request: httpx.Response(401))
+        result = query_container_logs(_configured(project_id=5), text="panic")
+        assert result["available"] is False
+        assert "authentication" in result["error"].lower()
+
+
 class TestQueryDeployments:
     def test_happy_path_slims_rows(self, patched_http_client) -> None:
         payload = {
@@ -457,6 +531,7 @@ def test_api_key_never_in_evidence(patched_http_client) -> None:
     for result in (
         query_error_groups(_configured(project_id=5)),
         query_logs(_configured(project_id=5)),
+        query_container_logs(_configured(project_id=5)),
         query_deployments(_configured(project_id=5)),
         query_uptime(_configured(project_id=5)),
     ):

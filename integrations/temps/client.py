@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -52,6 +53,23 @@ def _get(
         return None, f"Temps request failed: {err}"
     except Exception as err:  # defensive: unexpected client construction issues
         report_validation_failure(err, logger=logger, integration="temps", method="_get")
+        return None, f"Temps request failed: {err}"
+    return response, None
+
+
+def _post(
+    config: TempsConfig,
+    path: str,
+    body: dict[str, Any],
+) -> tuple[httpx.Response | None, str | None]:
+    """POST a JSON body to a temps.sh admin API path (same contract as ``_get``)."""
+    try:
+        with _http_client(config) as client:
+            response = client.post(path, json=body)
+    except httpx.RequestError as err:
+        return None, f"Temps request failed: {err}"
+    except Exception as err:  # defensive: unexpected client construction issues
+        report_validation_failure(err, logger=logger, integration="temps", method="_post")
         return None, f"Temps request failed: {err}"
     return response, None
 
@@ -359,6 +377,86 @@ def query_logs(
         "logs": logs,
         "log_count": len(logs),
         "limit": params["limit"],
+    }
+
+
+# Default lookback for container-log searches when the caller gives no window.
+# Keeps a bare "tail the logs" call bounded instead of scanning all history.
+DEFAULT_CONTAINER_LOGS_LOOKBACK_MINUTES = 15
+
+
+def query_container_logs(
+    config: TempsConfig,
+    project_id: int | None = None,
+    text: str | None = None,
+    service: str | None = None,
+    environment: str | None = None,
+    levels: list[str] | None = None,
+    deploy_id: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    context_lines: int | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Search raw container stdout/stderr logs (``POST /api/logs/search``).
+
+    This is the runtime container log store (distinct from OTel logs). Temps
+    also exposes true live streaming (SSE ``/logs/tail`` and WebSocket
+    container-logs endpoints), which does not fit the synchronous tool
+    contract; this bounded search is the tail-equivalent. When no
+    ``start_time`` is given, the window defaults to the last
+    ``DEFAULT_CONTAINER_LOGS_LOOKBACK_MINUTES`` minutes. ``context_lines``
+    behaves like ``grep -C`` (server clamps to 50).
+    """
+    if not config.is_configured:
+        return _error_evidence("Not configured.")
+    resolved_id, resolve_err = resolve_project_id(config, project_id)
+    if resolve_err is not None:
+        return resolve_err
+
+    effective_start = start_time
+    if not effective_start:
+        lookback = timedelta(minutes=DEFAULT_CONTAINER_LOGS_LOOKBACK_MINUTES)
+        effective_start = (datetime.now(UTC) - lookback).isoformat()
+
+    body: dict[str, Any] = {
+        "project_id": resolved_id,
+        "page_size": _effective_limit(config, limit),
+        "start_time": effective_start,
+    }
+    if text:
+        body["text"] = text
+    if service:
+        body["services"] = [service]
+    if environment:
+        body["envs"] = [environment]
+    if levels:
+        body["levels"] = [level for level in levels if level]
+    if deploy_id:
+        body["deploy_id"] = deploy_id
+    if end_time:
+        body["end_time"] = end_time
+    if context_lines:
+        body["context_lines"] = max(0, int(context_lines))
+
+    response, err = _post(config, "/logs/search", body)
+    if err is not None or response is None:
+        return _error_evidence(err or "Temps request returned no response.", project_id=resolved_id)
+    if response.status_code != 200:
+        return _status_error(response, "container-logs search", resolved_id)
+
+    payload = _json_body(response)
+    payload = payload if isinstance(payload, dict) else {}
+    lines = [_truncate_row(row) for row in _rows(payload, "lines")]
+    return {
+        "source": "temps",
+        "available": True,
+        "project_id": resolved_id,
+        "lines": lines,
+        "line_count": len(lines),
+        "total_scanned": _total_count(payload, "total_scanned", fallback=len(lines)),
+        "next_cursor": payload.get("next_cursor"),
+        "window": {"start_time": effective_start, "end_time": end_time or "now"},
     }
 
 

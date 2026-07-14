@@ -73,10 +73,15 @@ Verification performs an authenticated project-list request and reports how many
 | --- | --- | --- |
 | `query_temps_error_groups` | Grouped application errors (Sentry-style issues) with counts and last-seen timestamps | `GET /api/projects/{id}/error-groups` |
 | `query_temps_logs` | OpenTelemetry log records filtered by severity, service, search text, trace ID, and time window | `GET /api/otel/logs` |
+| `query_temps_container_logs` | Raw container stdout/stderr from deployments: grep-style text search, service/env/level/deploy filters, `grep -C` context lines. Defaults to the last 15 minutes (bounded tail) | `POST /api/logs/search` |
 | `query_temps_deployments` | Recent deployments (status, branch, commit) to correlate "what shipped" with an alert window | `GET /api/projects/{id}/deployments` |
 | `query_temps_uptime` | Uptime overview: per-monitor status, uptime percentage, response times, recent incidents | `GET /api/projects/{id}/status` |
 
 All tools are read-only. When `project_id` is not supplied, they resolve the target project automatically (configured hint → sole project) and otherwise return the list of visible projects so the planner can retry with an explicit ID.
+
+### OTel logs vs container logs
+
+`query_temps_logs` reads structured OpenTelemetry records that applications ship via OTLP; `query_temps_container_logs` reads the raw stdout/stderr Temps captures from deployment containers — the place to look for panics, OOM kills, and crash-loop output that never reaches an OTel exporter. Temps also has true live streaming (SSE `GET /api/logs/tail`, WebSocket container-log endpoints), which does not fit the synchronous tool contract; agents approximate a live tail by re-querying `query_temps_container_logs` with a sliding `start_time`.
 
 ## Notes
 
